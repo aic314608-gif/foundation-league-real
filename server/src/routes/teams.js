@@ -15,7 +15,7 @@ router.get('/', async (req, res) => {
   const { rows } = await pool.query(
     `SELECT t.*, s.name AS stage_name, s.tier_order,
      (SELECT COUNT(*)::int FROM players p WHERE p.team_id = t.id AND p.retired = false) AS squad_size,
-     (SELECT username FROM users u WHERE u.team_id = t.id AND u.role = 'manager' LIMIT 1) AS manager_username,
+     (SELECT username FROM users u WHERE u.team_id = t.id LIMIT 1) AS manager_username,
      (SELECT name FROM coaches c WHERE c.team_id = t.id) AS coach_name
      FROM teams t JOIN stages s ON s.id = t.stage_id ORDER BY s.tier_order, t.name`);
   res.json({ teams: rows });
@@ -31,7 +31,7 @@ router.get('/:id', async (req, res) => {
   const { rows: players } = await pool.query(
     `SELECT * FROM players WHERE team_id = $1 AND retired = false ORDER BY (position='GK') DESC, name`, [teamId]);
   const { rows: coachRows } = await pool.query('SELECT * FROM coaches WHERE team_id = $1', [teamId]);
-  const { rows: managerRows } = await pool.query(`SELECT username FROM users WHERE team_id = $1 AND role = 'manager'`, [teamId]);
+  const { rows: managerRows } = await pool.query(`SELECT username FROM users WHERE team_id = $1`, [teamId]);
   const { rows: marqueeRequests } = await pool.query(
     `SELECT * FROM marquee_requests WHERE team_id = $1 AND status = 'pending'`, [teamId]);
 
@@ -47,7 +47,7 @@ router.post('/:id/claim', authRequired, async (req, res) => {
     const teamId = Number(req.params.id);
     const { rows: teamRows } = await pool.query('SELECT * FROM teams WHERE id = $1', [teamId]);
     if (!teamRows.length) return res.status(404).json({ error: 'Team not found.' });
-    const { rows: existingManager } = await pool.query(`SELECT id FROM users WHERE team_id = $1 AND role = 'manager'`, [teamId]);
+    const { rows: existingManager } = await pool.query(`SELECT id FROM users WHERE team_id = $1`, [teamId]);
     if (existingManager.length) return res.status(409).json({ error: 'This team already has a manager.' });
     if (req.user.teamId) return res.status(409).json({ error: 'You already manage a team.' });
 

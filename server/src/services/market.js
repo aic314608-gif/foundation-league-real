@@ -2,8 +2,12 @@ const { pool, withTransaction } = require('../db');
 const { estimateWage, evaluateContractOffer, evaluateTransferOffer, generateSponsorOffers, evaluateSponsorCounter } = require('../engine/economy');
 const { addNews } = require('./leagueOps');
 
+// "Has a manager" means the team is human-controlled — that's anyone with
+// team_id pointing at it, not just role='manager' (an admin/owner who
+// self-claimed a club is just as human-controlled and should get the same
+// manual review, not silent AI auto-accept/reject).
 async function teamHasManager(client, teamId) {
-  const { rows } = await client.query(`SELECT 1 FROM users WHERE team_id = $1 AND role = 'manager' LIMIT 1`, [teamId]);
+  const { rows } = await client.query(`SELECT 1 FROM users WHERE team_id = $1 LIMIT 1`, [teamId]);
   return rows.length > 0;
 }
 
@@ -223,7 +227,7 @@ async function upgradeFacility(teamId, facility) {
   if (!['youth_level', 'medical_level'].includes(facility)) throw new Error('Unknown facility.');
   return withTransaction(async (client) => {
     const { rows } = await client.query(
-      `SELECT t.*, s.tier_order FROM teams t LEFT JOIN stages s ON s.id = t.stage_id WHERE t.id = $1 FOR UPDATE`, [teamId]);
+      `SELECT t.*, s.tier_order FROM teams t LEFT JOIN stages s ON s.id = t.stage_id WHERE t.id = $1 FOR UPDATE OF t`, [teamId]);
     const team = rows[0];
     if (!team) throw new Error('Team not found.');
     const current = Number(team[facility]);

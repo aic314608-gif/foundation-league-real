@@ -34,11 +34,14 @@ function generatePassword() {
 /** Creates a manager login for every club that doesn't already have one —
  * one dedicated account per club, admin-provisioned rather than
  * self-claimed. Plaintext passwords are only ever returned here, at
- * creation time; after this they're hashed like any other account. */
+ * creation time; after this they're hashed like any other account.
+ * "Already claimed" means any user with team_id = t.id, not just role =
+ * 'manager' — an admin/owner who self-claimed a club counts too, so this
+ * doesn't hand out a duplicate login for a club someone already runs. */
 async function provisionManagerLogins(actorUser) {
   const { rows: teams } = await pool.query(
     `SELECT t.id, t.name FROM teams t
-     WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.team_id = t.id AND u.role = 'manager')
+     WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.team_id = t.id)
      ORDER BY t.name`,
   );
   const created = [];
