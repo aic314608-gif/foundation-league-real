@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('../db');
 const { authRequired, requireTeamAccess, signToken, setAuthCookie, isAdminLike } = require('../auth');
-const market = require('../services/market');
+const market = require('./market');
 const marquee = require('../services/marquee');
 const { FORMATION_NAMES, MENTALITIES } = require('../constants/formations');
 const { cardTypesAllowedForTier } = require('../engine/marquee');
