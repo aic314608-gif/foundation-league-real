@@ -47,9 +47,21 @@ function recomputeCategories(player) {
 // deliberately scoped-down version of the source bot's 15-25 granular
 // custom stats per player, so every player still has an individual,
 // position-shaped, drill-down-able profile rather than one flat number.
+//
+// Tier separation: the quality multiplier (14) and the ceilings below were
+// tuned together so tier actually controls how high a player can go, not
+// just where they average. Previously the multiplier (8) shifted the whole
+// [lo,hi] window by only ~8-10 points between the worst and best tier,
+// while each window itself spanned 20-30 points — so a bottom-tier (D)
+// player's unlucky-in-a-good-way roll could land in the same range as a
+// top-tier (S) player's average roll, producing "random" 90+ overalls on
+// players never meant to be stars. Lowering each ceiling by 8 and roughly
+// doubling the multiplier means a low tier's best-case roll and a high
+// tier's worst-case roll no longer overlap as much — 90+ becomes something
+// only S/A tier (genuine world-class real players) can realistically reach.
 function generatePositionStats(position, quality = 0) {
-  const q = quality * 8;
-  const range = (lo, hi) => [clamp(lo + Math.round(q)), clamp(hi + Math.round(q))];
+  const q = quality * 14;
+  const range = (lo, hi) => [clamp(lo + Math.round(q)), clamp(hi - 8 + Math.round(q))];
   const out = {};
 
   const apply = (category, [lo, hi]) => {

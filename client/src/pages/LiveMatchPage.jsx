@@ -4,7 +4,7 @@ import { api } from '../api.js';
 import { getSocket } from '../socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
-const EVENT_ICON = { goal: '⚽', yellow: '🟨', red: '🟥', injury: '🚑', sub: '🔄', save: '🧤', half_time: '⏸', full_time: '🏁' };
+const EVENT_ICON = { goal: '⚽', yellow: '🟨', red: '🟥', injury: '🚑', sub: '🔄', save: '🧤', shot_off: '🎯', corner: '🚩', half_time: '⏸', full_time: '🏁' };
 
 export default function LiveMatchPage() {
   const { id } = useParams();
@@ -27,8 +27,8 @@ export default function LiveMatchPage() {
     const onState = (s) => { setState(s); setNotLive(null); };
     const onTick = (data) => {
       setState((prev) => prev ? { ...prev, minute: data.minute, half: data.half, homeScore: data.homeScore, awayScore: data.awayScore, stats: data.stats, possession: data.possession, subsUsed: data.subsUsed } : prev);
-      if (data.event && data.event.text) {
-        setFeed((f) => [...f.slice(-60), { minute: data.minute, ...data.event }]);
+      if (data.events && data.events.length) {
+        setFeed((f) => [...f, ...data.events.filter((e) => e.text)].slice(-60));
       }
     };
     const onFinished = (s) => { setState(s); };

@@ -193,8 +193,7 @@ function resolveShotChance(state, side) {
 
   const onTargetProb = clamp(0.30 + (shooter.shooting - 60) / 320, 0.15, 0.6);
   if (Math.random() >= onTargetProb) {
-    log(state, state.minute, `${shooter.name} fires over the bar.`, { type: 'shot_off' });
-    return;
+    return log(state, state.minute, `${shooter.name} fires over the bar.`, { type: 'shot_off' });
   }
   statsFor(state, side).onTarget += 1;
   pStats.shotsOnTarget += 1;
@@ -204,8 +203,7 @@ function resolveShotChance(state, side) {
   const saveProb = clamp(0.62 + (gkSkill - 60) / 260 - (shooter.shooting - 60) / 340, 0.35, 0.92);
   if (Math.random() < saveProb) {
     if (gk) state.playerMatchStats[gk.id].saves += 1;
-    log(state, state.minute, `${shooter.name}'s effort is saved${gk ? ` by ${gk.name}` : ''}!`, { type: 'save' });
-    return;
+    return log(state, state.minute, `${shooter.name}'s effort is saved${gk ? ` by ${gk.name}` : ''}!`, { type: 'save' });
   }
 
   // GOAL
@@ -322,9 +320,10 @@ function performSubstitution(state, side, outId, inId, { auto = false } = {}) {
 }
 
 /**
- * Advances the match by exactly one simulated minute. Returns an object
- * describing what happened (used by the caller to decide what to persist
- * / broadcast) or null once the match has fully finished.
+ * Advances the match by exactly one simulated minute. Returns the list of
+ * commentary entries generated this tick (often empty — most minutes are
+ * uneventful) so the caller can broadcast every one of them, not just a
+ * single "headline" event. Returns null once the match has fully finished.
  */
 function tick(state) {
   if (state.finished) return null;
@@ -332,17 +331,16 @@ function tick(state) {
   if (state.half === 1 && state.minute >= 45) {
     state.half = 2;
     state.minute = 45;
-    log(state, 45, 'Half-time.', { type: 'half_time' });
-    return { type: 'half_time' };
+    return [log(state, 45, 'Half-time.', { type: 'half_time' })];
   }
   if (state.half === 2 && state.minute >= 90) {
     state.finished = true;
     state.status = 'finished';
-    log(state, 90, `Full-time: ${state.homeTeam.name} ${state.homeScore}-${state.awayScore} ${state.awayTeam.name}.`, { type: 'full_time' });
-    return { type: 'full_time' };
+    return [log(state, 90, `Full-time: ${state.homeTeam.name} ${state.homeScore}-${state.awayScore} ${state.awayTeam.name}.`, { type: 'full_time' })];
   }
 
   state.minute += 1;
+  const commentaryStart = state.commentary.length;
   tickInjuriesAndFatigue(state);
 
   const homeStrength = computeStrength(state.homeLineup, state.homeFormation, state.homeMentality, state.homeChemMult ?? 1);
@@ -361,16 +359,15 @@ function tick(state) {
   const gap = attackers.attack - defenders.defense;
   const chanceProb = clamp(CHANCE_BASE + gap / CHANCE_SCALE, 0.08, 0.55);
 
-  let event = null;
   if (Math.random() < chanceProb) {
-    event = resolveShotChance(state, attackingSide) || { type: 'chance' };
+    resolveShotChance(state, attackingSide);
   } else {
     maybeCorner(state, attackingSide);
   }
 
   maybeFoulOrCard(state, attackingSide);
 
-  return event || { type: 'minute' };
+  return state.commentary.slice(commentaryStart);
 }
 
 function possessionPct(state) {

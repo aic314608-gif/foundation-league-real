@@ -110,14 +110,14 @@ function scheduleTick(entry) {
 async function runTick(entry) {
   const { state, io } = entry;
   if (state.finished) return;
-  const event = tick(state);
+  const events = tick(state) || [];
   io.to(`match-${state.matchId}`).emit('match:tick', {
     minute: state.minute, half: state.half, homeScore: state.homeScore, awayScore: state.awayScore,
-    event, commentaryTail: state.commentary.slice(-5), stats: state.stats, possession: possessionPct(state),
+    events, stats: state.stats, possession: possessionPct(state),
     injuredPlayers: state.injuredPlayers.slice(-3), subsUsed: state.subsUsed,
   });
 
-  if (event && event.type === 'sub') {
+  if (events.some((e) => e.type === 'sub')) {
     io.to(`match-${state.matchId}`).emit('match:state', publicState(state));
   }
 
