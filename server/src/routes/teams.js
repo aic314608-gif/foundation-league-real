@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
-const { authRequired, requireTeamAccess, signToken, setAuthCookie } = require('../auth');
+const { authRequired, requireTeamAccess, signToken, setAuthCookie, isAdminLike } = require('../auth');
 const market = require('../services/market');
 const marquee = require('../services/marquee');
 const { FORMATION_NAMES, MENTALITIES } = require('../constants/formations');
@@ -51,7 +51,11 @@ router.post('/:id/claim', authRequired, async (req, res) => {
     if (existingManager.length) return res.status(409).json({ error: 'This team already has a manager.' });
     if (req.user.teamId) return res.status(409).json({ error: 'You already manage a team.' });
 
-    await pool.query(`UPDATE users SET role = 'manager', team_id = $1 WHERE id = $2`, [teamId, req.user.id]);
+    // Admins/owners keep their role when claiming a team (they already have
+    // full team access via isAdminLike), so admin UI stays visible. Everyone
+    // else becomes a manager of the claimed team.
+    const nextRole = isAdminLike(req.user.role) ? req.user.role : 'manager';
+    await pool.query(`UPDATE users SET role = $1, team_id = $2 WHERE id = $3`, [nextRole, teamId, req.user.id]);
 
     // The JWT cookie carries a snapshot of role/teamId taken at login, so
     // without reissuing it here the client (and every socket connection,
