@@ -21,15 +21,25 @@ async function clearPersistedMatch(matchId) {
 
 /** Called once at server boot. Reloads any matches that were live when the
  * process last stopped and restarts their tick loops in place — viewers
- * just see the match pick back up from its last simulated minute. */
+ * just see the match pick back up from its last simulated minute.
+ * Staggered slightly (a few hundred ms apart) rather than all firing in
+ * the same instant: a restart can resume dozens of matches at once, and
+ * if several of them are already sitting at minute 90, they'd otherwise
+ * all try to finalize (and hit Postgres) in the very same tick — exactly
+ * the pile-up that caused the deadlock this was built to avoid. */
 async function resumeLiveMatches(io) {
   const saved = await kvListByPrefix(KV_PREFIX);
-  for (const { value: state } of saved) {
-    if (state.finished || state.status !== 'live') continue;
+  saved.forEach(({ value: state }, i) => {
+    if (state.finished || state.status !== 'live') return;
     const entry = { state, io, interval: null };
     live.set(state.matchId, entry);
-    scheduleTick(entry);
-  }
+    entry.interval = setTimeout(() => {
+      runTick(entry).catch((err) => {
+        console.error(`Live match ${state.matchId} tick failed, will retry:`, err);
+        scheduleTick(entry);
+      });
+    }, 150 * i);
+  });
   if (saved.length) console.log(`Resumed ${saved.length} live match(es) after restart.`);
 }
 
@@ -104,12 +114,39 @@ async function startMatch(matchId, io) {
 
 function scheduleTick(entry) {
   const delay = Math.max(200, Math.round(BASE_TICK_MS / (entry.state.speed || 1)));
-  entry.interval = setTimeout(() => runTick(entry), delay);
+  entry.interval = setTimeout(() => {
+    runTick(entry).catch((err) => {
+      // A single match's DB hiccup (deadlock, dropped connection, etc.)
+      // must never take the whole process down — Node treats an unhandled
+      // rejection as fatal by default, and this tick loop runs unattended
+      // for dozens of concurrent matches. Log it and just retry on the
+      // next tick instead of crashing every other live match/auction/page
+      // along with it.
+      console.error(`Live match ${entry.state.matchId} tick failed, will retry:`, err);
+      scheduleTick(entry);
+    });
+  }, delay);
 }
 
 async function runTick(entry) {
   const { state, io } = entry;
-  if (state.finished) return;
+  if (state.finished) {
+    // We only get here on a retry after finalizeMatch threw previously.
+    // tick() already flipped state.finished before that failed attempt, so
+    // re-running the normal path below would just no-op forever — retry
+    // finalizing directly instead, or this match would silently freeze
+    // half-finished (never cleared, never removed from `live`).
+    try {
+      await finalizeMatch(state);
+      await clearPersistedMatch(state.matchId);
+      io.to(`match-${state.matchId}`).emit('match:finished', publicState(state));
+      live.delete(state.matchId);
+    } catch (err) {
+      console.error(`Live match ${state.matchId} finalize failed, will retry:`, err);
+      scheduleTick(entry);
+    }
+    return;
+  }
   const events = tick(state) || [];
   io.to(`match-${state.matchId}`).emit('match:tick', {
     minute: state.minute, half: state.half, homeScore: state.homeScore, awayScore: state.awayScore,
@@ -141,8 +178,18 @@ async function finalizeMatch(state) {
 
     const homeResult = state.homeScore > state.awayScore ? 'W' : state.homeScore < state.awayScore ? 'L' : 'D';
     const awayResult = homeResult === 'W' ? 'L' : homeResult === 'L' ? 'W' : 'D';
-    await applyTeamResult(client, state.homeTeam.id, homeResult, state.homeScore, state.awayScore);
-    await applyTeamResult(client, state.awayTeam.id, awayResult, state.awayScore, state.homeScore);
+    // Always touch team rows in a fixed order (ascending id), never
+    // home-then-away. With many matches finalizing concurrently after a
+    // restart, two simultaneous transactions locking the same two teams'
+    // rows in opposite orders (e.g. match A: team 1 then team 2, match B
+    // involving the same pair as team 2 then team 1) is a textbook deadlock
+    // — Postgres has to kill one side (error 40P01), which took the whole
+    // process down. A single consistent lock order makes that impossible.
+    const teamResults = [
+      { teamId: state.homeTeam.id, result: homeResult, gf: state.homeScore, ga: state.awayScore },
+      { teamId: state.awayTeam.id, result: awayResult, gf: state.awayScore, ga: state.homeScore },
+    ].sort((a, b) => a.teamId - b.teamId);
+    for (const r of teamResults) await applyTeamResult(client, r.teamId, r.result, r.gf, r.ga);
     await recordMatchChemistry(client, state.homeTeam.id, state.homeLineup, state.playerMatchStats);
     await recordMatchChemistry(client, state.awayTeam.id, state.awayLineup, state.playerMatchStats);
 
